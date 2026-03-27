@@ -5,8 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { masterDb, getUserDb } = require("./db");
-const { sendOTP } = require("./sms-service");
+const { pool, initDb } = require("./db");
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -17,18 +16,26 @@ const webRoot = path.join(__dirname, "..");
 app.use(cors());
 app.use(express.json());
 
+// Initialize Database
+initDb().then(() => {
+  console.log("Database initialized successfully.");
+}).catch(err => {
+  console.error("Database initialization failed:", err);
+  process.exit(1);
+});
+
 // Middleware to verify JWT
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'Access token required' });
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
     if (err) return res.status(403).json({ message: 'Invalid token' });
     
-    // Check if user is still active in master DB
     try {
-      const user = masterDb.prepare("SELECT status, is_admin FROM users WHERE id = ?").get(decoded.id);
+      const result = await pool.query("SELECT status, is_admin FROM users WHERE id = $1", [decoded.id]);
+      const user = result.rows[0];
       if (!user) return res.status(401).json({ message: 'User no longer exists' });
       if (user.status === 'inactive') return res.status(403).json({ message: 'Account is inactive. Contact Admin.' });
       
@@ -49,7 +56,7 @@ function requireAdmin(req, res, next) {
 }
 
 // Auth routes
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const { name, mobile, password } = req.body;
   if (!name || !mobile || !password) {
     return res.status(400).json({ message: "All fields are required." });
@@ -62,27 +69,29 @@ app.post("/api/auth/register", (req, res) => {
   }
 
   try {
-    const existing = masterDb.prepare("SELECT id FROM users WHERE mobile = ?").get(mobile);
-    if (existing) {
+    const existingResult = await pool.query("SELECT id FROM users WHERE mobile = $1", [mobile]);
+    if (existingResult.rows.length > 0) {
       return res.status(400).json({ message: "Mobile number already registered" });
     }
 
-    // First user is automatically Admin
-    const userCount = masterDb.prepare("SELECT COUNT(*) as count FROM users").get().count;
-    const isAdmin = userCount === 0 ? 1 : 0;
+    const countResult = await pool.query("SELECT COUNT(*) as count FROM users");
+    const isAdmin = parseInt(countResult.rows[0].count) === 0;
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = masterDb.prepare("INSERT INTO users (name, mobile, password_hash, password_plain, is_admin) VALUES (?, ?, ?, ?, ?)").run(name.trim(), mobile, passwordHash, password, isAdmin);
+    const result = await pool.query(
+      "INSERT INTO users (name, mobile, password_hash, password_plain, is_admin) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [name.trim(), mobile, passwordHash, password, isAdmin]
+    );
 
-    const token = jwt.sign({ id: result.lastInsertRowid, name, mobile, is_admin: !!isAdmin }, JWT_SECRET, { expiresIn: '24h' });
-    res.status(201).json({ token, is_admin: !!isAdmin, message: "Registration successful" });
+    const token = jwt.sign({ id: result.rows[0].id, name, mobile, is_admin: isAdmin }, JWT_SECRET, { expiresIn: '24h' });
+    res.status(201).json({ token, is_admin: isAdmin, message: "Registration successful" });
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ message: "Registration failed." });
   }
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const identity = (req.body.identity || req.body.login || "").trim();
   const password = req.body.password;
   if (!identity || !password) {
@@ -90,7 +99,11 @@ app.post("/api/auth/login", (req, res) => {
   }
 
   try {
-    const user = masterDb.prepare("SELECT id, name, mobile, password_hash, status, is_admin FROM users WHERE mobile = ? OR LOWER(name) = LOWER(?)").get(identity, identity);
+    const userResult = await pool.query(
+      "SELECT id, name, mobile, password_hash, status, is_admin FROM users WHERE mobile = $1 OR LOWER(name) = LOWER($2)",
+      [identity, identity]
+    );
+    const user = userResult.rows[0];
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -121,7 +134,7 @@ app.get("/api/auth/me", authenticateToken, (req, res) => {
   });
 });
 
-app.post("/api/auth/change-password", authenticateToken, (req, res) => {
+app.post("/api/auth/change-password", authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const userId = req.user.id;
 
@@ -130,34 +143,36 @@ app.post("/api/auth/change-password", authenticateToken, (req, res) => {
   }
 
   try {
-    const user = masterDb.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId);
+    const userResult = await pool.query("SELECT password_hash FROM users WHERE id = $1", [userId]);
+    const user = userResult.rows[0];
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const valid = bcrypt.compareSync(currentPassword, user.password_hash);
     if (!valid) return res.status(400).json({ message: "Current password galat hai." });
 
     const newHash = bcrypt.hashSync(newPassword, 10);
-    masterDb.prepare("UPDATE users SET password_hash = ?, password_plain = ? WHERE id = ?").run(newHash, newPassword, userId);
+    await pool.query("UPDATE users SET password_hash = $1, password_plain = $2 WHERE id = $3", [newHash, newPassword, userId]);
     res.json({ message: "Password successfully change ho gaya." });
   } catch (error) {
     res.status(500).json({ message: "Password change fail hua." });
   }
 });
 
-app.post("/api/auth/forgot-password", (req, res) => {
+app.post("/api/auth/forgot-password", async (req, res) => {
   const { mobile, name, newPassword } = req.body;
   if (!mobile || !name || !newPassword || newPassword.length < 6) {
     return res.status(400).json({ message: "Sahi details bhariye." });
   }
 
   try {
-    const user = masterDb.prepare("SELECT id FROM users WHERE mobile = ? AND LOWER(name) = LOWER(?)").get(mobile, name.trim());
+    const userResult = await pool.query("SELECT id FROM users WHERE mobile = $1 AND LOWER(name) = LOWER($2)", [mobile, name.trim()]);
+    const user = userResult.rows[0];
     if (!user) {
       return res.status(404).json({ message: "Details match nahi hui. Mobile aur Name check karein." });
     }
 
     const newHash = bcrypt.hashSync(newPassword, 10);
-    masterDb.prepare("UPDATE users SET password_hash = ?, password_plain = ? WHERE id = ?").run(newHash, newPassword, user.id);
+    await pool.query("UPDATE users SET password_hash = $1, password_plain = $2 WHERE id = $3", [newHash, newPassword, user.id]);
     res.json({ message: "Password reset ho gaya. Ab login karein." });
   } catch (error) {
     res.status(500).json({ message: "Password reset fail hua." });
@@ -165,31 +180,34 @@ app.post("/api/auth/forgot-password", (req, res) => {
 });
 
 // Admin Panel API Endpoints
-app.get("/api/admin/users", authenticateToken, requireAdmin, (req, res) => {
+app.get("/api/admin/users", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const users = masterDb.prepare("SELECT id, name, mobile, status, is_admin, password_plain, created_at FROM users WHERE id != ? ORDER BY created_at DESC").all(req.user.id);
-    res.json(users);
+    const usersResult = await pool.query(
+      "SELECT id, name, mobile, status, is_admin, password_plain, created_at FROM users WHERE id != $1 ORDER BY created_at DESC",
+      [req.user.id]
+    );
+    res.json(usersResult.rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
 
-app.patch("/api/admin/users/:userId/status", authenticateToken, requireAdmin, (req, res) => {
+app.patch("/api/admin/users/:userId/status", authenticateToken, requireAdmin, async (req, res) => {
   const userId = Number(req.params.userId);
   const { status } = req.body;
   if (!['active', 'inactive'].includes(status)) {
     return res.status(400).json({ message: "Invalid status value." });
   }
   try {
-    const result = masterDb.prepare("UPDATE users SET status = ? WHERE id = ?").run(status, userId);
-    if (result.changes === 0) return res.status(404).json({ message: "User not found." });
+    const result = await pool.query("UPDATE users SET status = $1 WHERE id = $2", [status, userId]);
+    if (result.rowCount === 0) return res.status(404).json({ message: "User not found." });
     res.json({ message: `User status updated to ${status}.` });
   } catch (err) {
     res.status(500).json({ message: "Failed to update user status." });
   }
 });
 
-app.patch("/api/admin/users/:userId/password", authenticateToken, requireAdmin, (req, res) => {
+app.patch("/api/admin/users/:userId/password", authenticateToken, requireAdmin, async (req, res) => {
   const userId = Number(req.params.userId);
   const { password } = req.body;
   if (!password || password.length < 6) {
@@ -197,34 +215,33 @@ app.patch("/api/admin/users/:userId/password", authenticateToken, requireAdmin, 
   }
   try {
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = masterDb.prepare("UPDATE users SET password_hash = ?, password_plain = ? WHERE id = ?").run(passwordHash, password, userId);
-    if (result.changes === 0) return res.status(404).json({ message: "User not found." });
+    const result = await pool.query("UPDATE users SET password_hash = $1, password_plain = $2 WHERE id = $3", [passwordHash, password, userId]);
+    if (result.rowCount === 0) return res.status(404).json({ message: "User not found." });
     res.json({ message: "Password updated successfully." });
   } catch (err) {
     res.status(500).json({ message: "Failed to update password." });
   }
 });
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (_req, res) => {
   try {
-    masterDb.prepare("SELECT 1").get();
+    await pool.query("SELECT 1");
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ ok: false, message: "Database connection failed." });
   }
 });
 
-app.get("/api/items", authenticateToken, (req, res) => {
+app.get("/api/items", authenticateToken, async (req, res) => {
   try {
-    const db = getUserDb(req.user.id);
-    const items = db.prepare("SELECT id, name, unit, price, stock FROM items ORDER BY name ASC").all();
-    res.json(items);
+    const itemsResult = await pool.query("SELECT id, name, unit, price, stock FROM items WHERE user_id = $1 ORDER BY name ASC", [req.user.id]);
+    res.json(itemsResult.rows);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch items" });
   }
 });
 
-app.post("/api/items", authenticateToken, (req, res) => {
+app.post("/api/items", authenticateToken, async (req, res) => {
   const { name, unit } = req.body;
   const price = Number(req.body.price);
   const stock = Number(req.body.stock);
@@ -234,95 +251,107 @@ app.post("/api/items", authenticateToken, (req, res) => {
   }
   const cleanName = name.trim();
   try {
-    const db = getUserDb(req.user.id);
-    const existing = db.prepare("SELECT id, stock FROM items WHERE LOWER(name) = LOWER(?)").get(cleanName);
-    if (existing) {
+    const existingResult = await pool.query("SELECT id, stock FROM items WHERE user_id = $1 AND LOWER(name) = LOWER($2)", [req.user.id, cleanName]);
+    if (existingResult.rows.length > 0) {
       return res.status(400).json({ message: `Item "${cleanName}" pehle se hi stock mein hai. Uska stock edit karein.` });
     }
-    const result = db.prepare("INSERT INTO items (name, unit, price, stock) VALUES (?, ?, ?, ?)").run(cleanName, unit, price, stock);
-    const item = db.prepare("SELECT id, name, unit, price, stock FROM items WHERE id = ?").get(result.lastInsertRowid);
-    res.status(201).json(item);
+    const result = await pool.query(
+      "INSERT INTO items (user_id, name, unit, price, stock) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, unit, price, stock",
+      [req.user.id, cleanName, unit, price, stock]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Item creation error:", error);
     res.status(500).json({ message: "Failed to create item" });
   }
 });
 
-app.patch("/api/items/:id/price", authenticateToken, (req, res) => {
+app.patch("/api/items/:id/price", authenticateToken, async (req, res) => {
   const id = Number(req.params.id);
   const price = Number(req.body.price);
   if (!id || Number.isNaN(price) || price < 0) {
     return res.status(400).json({ message: "Invalid price payload." });
   }
   try {
-    const db = getUserDb(req.user.id);
-    const result = db.prepare("UPDATE items SET price = ? WHERE id = ?").run(price, id);
-    if (result.changes === 0) return res.status(404).json({ message: "Item not found." });
-    const item = db.prepare("SELECT id, name, unit, price, stock FROM items WHERE id = ?").get(id);
-    res.json(item);
+    const result = await pool.query(
+      "UPDATE items SET price = $1 WHERE id = $2 AND user_id = $3 RETURNING id, name, unit, price, stock",
+      [price, id, req.user.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ message: "Item not found." });
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ message: "Failed to update price" });
   }
 });
 
-app.patch("/api/items/:id/stock", authenticateToken, (req, res) => {
+app.patch("/api/items/:id/stock", authenticateToken, async (req, res) => {
   const id = Number(req.params.id);
   const stock = Number(req.body.stock);
   if (!id || Number.isNaN(stock) || stock < 0) {
     return res.status(400).json({ message: "Invalid stock payload." });
   }
   try {
-    const db = getUserDb(req.user.id);
-    const result = db.prepare("UPDATE items SET stock = ? WHERE id = ?").run(stock, id);
-    if (result.changes === 0) return res.status(404).json({ message: "Item not found." });
-    const item = db.prepare("SELECT id, name, unit, price, stock FROM items WHERE id = ?").get(id);
-    res.json(item);
+    const result = await pool.query(
+      "UPDATE items SET stock = $1 WHERE id = $2 AND user_id = $3 RETURNING id, name, unit, price, stock",
+      [stock, id, req.user.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ message: "Item not found." });
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ message: "Failed to update stock" });
   }
 });
 
-app.delete("/api/items/:id", authenticateToken, (req, res) => {
+app.delete("/api/items/:id", authenticateToken, async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ message: "Invalid item id." });
   try {
-    const db = getUserDb(req.user.id);
-    const result = db.prepare("DELETE FROM items WHERE id = ?").run(id);
-    if (result.changes === 0) return res.status(404).json({ message: "Item not found." });
+    const result = await pool.query("DELETE FROM items WHERE id = $1 AND user_id = $2", [id, req.user.id]);
+    if (result.rowCount === 0) return res.status(404).json({ message: "Item not found." });
     res.status(204).end();
   } catch (error) {
     res.status(500).json({ message: "Failed to delete item" });
   }
 });
 
-app.get("/api/sales/today", authenticateToken, (req, res) => {
+app.get("/api/sales/today", authenticateToken, async (req, res) => {
   const date = req.query.date || 'now';
   try {
-    const db = getUserDb(req.user.id);
-    const dateFilter = date === 'now' ? "DATE('now')" : `DATE('${date}')`;
-    const result = db.prepare(`SELECT COUNT(*) AS bills, COALESCE(SUM(total_amount), 0) AS total FROM sales WHERE DATE(sold_at) = ${dateFilter}`).get();
-    res.json(result);
+    const dateFilter = date === 'now' ? "CURRENT_DATE" : `'${date}'::date`;
+    const query = `
+      SELECT COUNT(*) AS bills, COALESCE(SUM(total_amount), 0) AS total 
+      FROM sales 
+      WHERE user_id = $1 AND sold_at::date = ${dateFilter}
+    `;
+    const result = await pool.query(query, [req.user.id]);
+    res.json(result.rows[0]);
   } catch (error) {
+    console.error("Sales summary error:", error);
     res.status(500).json({ message: "Failed to fetch sales summary" });
   }
 });
 
-app.get("/api/sales/today/bills", authenticateToken, (req, res) => {
+app.get("/api/sales/today/bills", authenticateToken, async (req, res) => {
   const date = req.query.date || 'now';
   try {
-    const db = getUserDb(req.user.id);
-    const dateFilter = date === 'now' ? "DATE('now')" : `DATE('${date}')`;
-    const sales = db.prepare(`SELECT id, total_amount, sold_at, payment_mode FROM sales WHERE DATE(sold_at) = ${dateFilter} ORDER BY sold_at DESC`).all();
+    const dateFilter = date === 'now' ? "CURRENT_DATE" : `'${date}'::date`;
+    const salesResult = await pool.query(
+      `SELECT id, total_amount, sold_at, payment_mode FROM sales WHERE user_id = $1 AND sold_at::date = ${dateFilter} ORDER BY sold_at DESC`,
+      [req.user.id]
+    );
     
     const bills = [];
-    for (const sale of sales) {
-      const lines = db.prepare("SELECT item_name, unit, qty, unit_price, line_total FROM sale_lines WHERE sale_id = ? ORDER BY id ASC").all(sale.id);
+    for (const sale of salesResult.rows) {
+      const linesResult = await pool.query(
+        "SELECT item_name, unit, qty, unit_price, line_total FROM sale_lines WHERE sale_id = $1 ORDER BY id ASC",
+        [sale.id]
+      );
       bills.push({
         saleId: sale.id,
         totalAmount: Number(sale.total_amount),
         soldAt: sale.sold_at,
         paymentMode: sale.payment_mode,
-        lines: lines.map(l => ({
+        lines: linesResult.rows.map(l => ({
           itemName: l.item_name,
           unit: l.unit,
           qty: Number(l.qty),
@@ -337,26 +366,32 @@ app.get("/api/sales/today/bills", authenticateToken, (req, res) => {
   }
 });
 
-app.get("/api/sales/:saleId/receipt", authenticateToken, (req, res) => {
+app.get("/api/sales/:saleId/receipt", authenticateToken, async (req, res) => {
   const saleId = Number(req.params.saleId);
   if (!saleId) return res.status(400).json({ message: "Invalid sale ID." });
   
   try {
-    const db = getUserDb(req.user.id);
-    const sale = db.prepare("SELECT id, total_amount, sold_at, payment_mode FROM sales WHERE id = ?").get(saleId);
+    const saleResult = await pool.query(
+      "SELECT id, total_amount, sold_at, payment_mode FROM sales WHERE id = $1 AND user_id = $2",
+      [saleId, req.user.id]
+    );
+    const sale = saleResult.rows[0];
     
     if (!sale) {
       return res.status(404).json({ message: "Sale not found." });
     }
     
-    const lines = db.prepare("SELECT item_name, unit, qty, unit_price, line_total FROM sale_lines WHERE sale_id = ? ORDER BY id ASC").all(saleId);
+    const linesResult = await pool.query(
+      "SELECT item_name, unit, qty, unit_price, line_total FROM sale_lines WHERE sale_id = $1 ORDER BY id ASC",
+      [saleId]
+    );
     
     res.json({
       saleId: sale.id,
       totalAmount: Number(sale.total_amount),
       soldAt: sale.sold_at,
       paymentMode: sale.payment_mode,
-      lines: lines.map(l => ({
+      lines: linesResult.rows.map(l => ({
         itemName: l.item_name,
         unit: l.unit,
         qty: Number(l.qty),
@@ -370,61 +405,74 @@ app.get("/api/sales/:saleId/receipt", authenticateToken, (req, res) => {
 });
 
 // Customers & Udhaar API
-app.get("/api/customers", authenticateToken, (req, res) => {
+app.get("/api/customers", authenticateToken, async (req, res) => {
   try {
-    const db = getUserDb(req.user.id);
-    const customers = db.prepare("SELECT * FROM customers ORDER BY name ASC").all();
-    res.json(customers);
+    const result = await pool.query("SELECT * FROM customers WHERE user_id = $1 ORDER BY name ASC", [req.user.id]);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch customers" });
   }
 });
 
-app.post("/api/customers", authenticateToken, (req, res) => {
+app.post("/api/customers", authenticateToken, async (req, res) => {
   const { name, mobile } = req.body;
   if (!name) return res.status(400).json({ message: "Customer name is required." });
   try {
-    const db = getUserDb(req.user.id);
-    const result = db.prepare("INSERT INTO customers (name, mobile) VALUES (?, ?)").run(name.trim(), mobile || null);
-    const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(result.lastInsertRowid);
-    res.status(201).json(customer);
+    const result = await pool.query(
+      "INSERT INTO customers (user_id, name, mobile) VALUES ($1, $2, $3) RETURNING *",
+      [req.user.id, name.trim(), mobile || null]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ message: "Failed to create customer" });
   }
 });
 
-app.get("/api/customers/:id/transactions", authenticateToken, (req, res) => {
+app.get("/api/customers/:id/transactions", authenticateToken, async (req, res) => {
   const customerId = Number(req.params.id);
   try {
-    const db = getUserDb(req.user.id);
-    const transactions = db.prepare("SELECT * FROM udhaar_transactions WHERE customer_id = ? ORDER BY created_at DESC").all(customerId);
-    res.json(transactions);
+    // Verify customer belongs to user
+    const customerCheck = await pool.query("SELECT id FROM customers WHERE id = $1 AND user_id = $2", [customerId, req.user.id]);
+    if (customerCheck.rowCount === 0) return res.status(404).json({ message: "Customer not found." });
+
+    const result = await pool.query("SELECT * FROM udhaar_transactions WHERE customer_id = $1 ORDER BY created_at DESC", [customerId]);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch transactions" });
   }
 });
 
-app.post("/api/customers/:id/pay", authenticateToken, (req, res) => {
+app.post("/api/customers/:id/pay", authenticateToken, async (req, res) => {
   const customerId = Number(req.params.id);
   const { amount, note } = req.body;
   const payAmount = Number(amount);
   if (Number.isNaN(payAmount) || payAmount <= 0) return res.status(400).json({ message: "Invalid amount." });
 
+  const client = await pool.connect();
   try {
-    const db = getUserDb(req.user.id);
-    const transaction = db.transaction(() => {
-      db.prepare("INSERT INTO udhaar_transactions (customer_id, type, amount, note) VALUES (?, 'credit', ?, ?)").run(customerId, payAmount, note || 'Payment received');
-      db.prepare("UPDATE customers SET total_udhaar = total_udhaar - ? WHERE id = ?").run(payAmount, customerId);
-      return db.prepare("SELECT * FROM customers WHERE id = ?").get(customerId);
-    });
-    const customer = transaction();
-    res.json(customer);
+    await client.query('BEGIN');
+    
+    // Verify customer belongs to user
+    const customerCheck = await client.query("SELECT id FROM customers WHERE id = $1 AND user_id = $2", [customerId, req.user.id]);
+    if (customerCheck.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    await client.query("INSERT INTO udhaar_transactions (customer_id, type, amount, note) VALUES ($1, 'credit', $2, $3)", [customerId, payAmount, note || 'Payment received']);
+    const result = await client.query("UPDATE customers SET total_udhaar = total_udhaar - $1 WHERE id = $2 RETURNING *", [payAmount, customerId]);
+    
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(500).json({ message: "Failed to process payment" });
+  } finally {
+    client.release();
   }
 });
 
-app.post("/api/sales", authenticateToken, (req, res) => {
+app.post("/api/sales", authenticateToken, async (req, res) => {
   const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
   const paymentMode = req.body.paymentMode || 'cash';
   const customerId = req.body.customerId ? Number(req.body.customerId) : null;
@@ -434,30 +482,28 @@ app.post("/api/sales", authenticateToken, (req, res) => {
     return res.status(400).json({ message: "Udhaar ke liye customer chunna zaroori hai." });
   }
 
+  const client = await pool.connect();
   try {
-    const db = getUserDb(req.user.id);
-    const insertSale = db.prepare("INSERT INTO sales (customer_id, payment_mode, total_amount, sold_at) VALUES (?, ?, ?, datetime('now'))");
-    const insertLine = db.prepare("INSERT INTO sale_lines (sale_id, item_id, item_name, unit, qty, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    const updateStock = db.prepare("UPDATE items SET stock = stock - ? WHERE id = ?");
+    await client.query('BEGIN');
 
     let total = 0;
     const resolved = [];
     for (const line of lines) {
       const itemId = Number(line.itemId);
       const qty = Number(line.qty);
-      const lineUnit = line.unit; // Get unit from request line
+      const lineUnit = line.unit;
       
       if (!itemId || Number.isNaN(qty) || qty <= 0) {
         throw new Error("Invalid billing line.");
       }
       
-      const item = db.prepare("SELECT id, name, unit, price, stock FROM items WHERE id = ?").get(itemId);
+      const itemResult = await client.query("SELECT id, name, unit, price, stock FROM items WHERE id = $1 AND user_id = $2", [itemId, req.user.id]);
+      const item = itemResult.rows[0];
       if (!item) throw new Error("Item not found.");
       
       let baseQty = qty;
       let displayUnit = lineUnit || item.unit;
       
-      // Conversion logic: if base is kg and user sells in gram
       if (item.unit === 'kg' && lineUnit === 'gram') {
         baseQty = qty / 1000;
       } else if (item.unit === 'gram' && lineUnit === 'kg') {
@@ -475,42 +521,46 @@ app.post("/api/sales", authenticateToken, (req, res) => {
         itemId,
         name: item.name,
         unit: displayUnit,
-        qty: qty, // Store original qty for receipt
-        baseQty: baseQty, // Store converted qty for stock
-        price: Number(item.price) * (baseQty / qty), // Calculated unit price for the display unit
+        qty: qty,
+        baseQty: baseQty,
+        price: Number(item.price) * (baseQty / qty),
         lineTotal,
       });
     }
 
-    // Use transaction
-    const transaction = db.transaction(() => {
-      // Update stock
-      for (const line of resolved) {
-        updateStock.run(line.baseQty, line.itemId);
-      }
-      
-      // Insert sale
-      const saleResult = insertSale.run(customerId, paymentMode, total);
-      const saleId = saleResult.lastInsertRowid;
-      
-      // Insert lines
-      for (const line of resolved) {
-        insertLine.run(saleId, line.itemId, line.name, line.unit, line.qty, line.price, line.lineTotal);
-      }
-
-      // If Udhaar, update customer balance
-      if (paymentMode === 'udhaar' && customerId) {
-        db.prepare("INSERT INTO udhaar_transactions (customer_id, sale_id, type, amount, note) VALUES (?, ?, 'debit', ?, ?)").run(customerId, saleId, total, `Bill #${saleId}`);
-        db.prepare("UPDATE customers SET total_udhaar = total_udhaar + ? WHERE id = ?").run(total, customerId);
-      }
-      
-      return saleId;
-    });
+    // Update stock
+    for (const line of resolved) {
+      await client.query("UPDATE items SET stock = stock - $1 WHERE id = $2 AND user_id = $3", [line.baseQty, line.itemId, req.user.id]);
+    }
     
-    const saleId = transaction();
+    // Insert sale
+    const saleResult = await client.query(
+      "INSERT INTO sales (user_id, customer_id, payment_mode, total_amount, sold_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) RETURNING id",
+      [req.user.id, customerId, paymentMode, total]
+    );
+    const saleId = saleResult.rows[0].id;
+    
+    // Insert lines
+    for (const line of resolved) {
+      await client.query(
+        "INSERT INTO sale_lines (sale_id, item_id, item_name, unit, qty, unit_price, line_total) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [saleId, line.itemId, line.name, line.unit, line.qty, line.price, line.lineTotal]
+      );
+    }
+
+    // If Udhaar, update customer balance
+    if (paymentMode === 'udhaar' && customerId) {
+      await client.query("INSERT INTO udhaar_transactions (customer_id, sale_id, type, amount, note) VALUES ($1, $2, 'debit', $3, $4)", [customerId, saleId, total, `Bill #${saleId}`]);
+      await client.query("UPDATE customers SET total_udhaar = total_udhaar + $1 WHERE id = $2 AND user_id = $3", [total, customerId, req.user.id]);
+    }
+    
+    await client.query('COMMIT');
     res.status(201).json({ saleId, grandTotal: total });
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(400).json({ message: error.message || "Sale failed." });
+  } finally {
+    client.release();
   }
 });
 
@@ -556,23 +606,12 @@ const server = app.listen(port, host, () => {
   if (ips.length) {
     console.log("Phone (same Wi‑Fi) — http use karein, https nahi:");
     for (const ip of ips) console.log(`  http://${ip}:${port}/`);
-    console.log(
-      "Agar phone se na khule: Windows Firewall → port 4000 allow karein, ya backend/open-firewall-4000.bat (Run as administrator)."
-    );
-    console.log(
-      "Alag Wi‑Fi / mobile data: backend/REMOTE-ACCESS.txt (Tailscale = best; cloudflared = quick tunnel)."
-    );
   }
 });
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
-    console.error(
-      `\n[!] Port ${port} pehle se use ho raha hai.\n` +
-        `    → Jis terminal me pehle server chal raha hai, wahan Ctrl+C dabao.\n` +
-        `    → Ya yahan se: npm run free-port   phir   npm start\n` +
-        `    → Ya ek hi baar: npm run start:clean\n`
-    );
+    console.error(`\n[!] Port ${port} pehle se use ho raha hai.\n`);
     process.exit(1);
   }
   console.error(err);
