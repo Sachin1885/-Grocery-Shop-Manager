@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#059669" />
+    <meta name="description" content="Grocery shop — stock, price, billing" />
+    <title>Grocery Shop Manager</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <h1>🛒 Grocery Shop Manager</h1>
+          <p>Stock · Price · Billing</p>
+        </div>
+        <div class="header-profile" id="header-profile">
+          <div style="text-align: right;">
+            <div id="header-username" style="font-weight: 600; font-size: 0.9rem;">Guest</div>
+            <div id="header-user-role" style="font-size: 0.7rem; color: var(--muted);">Shop Owner</div>
+          </div>
+          <img id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Guest" style="width: 35px; height: 35px; border-radius: 50%; background: var(--surface2);" alt="Avatar">
+          
+          <div class="profile-dropdown" id="profile-dropdown">
+            <a href="/dashboard.html" class="dropdown-item">
+              <span>🏠 Dashboard</span>
+            </a>
+            <button type="button" id="change-pass-btn" class="dropdown-item">
+              <span>🔑 Change Password</span>
+            </button>
+            <div class="dropdown-divider"></div>
+            <button id="logout-btn" class="dropdown-item danger">
+              <span>🚪 Logout</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <nav class="nav-tabs" aria-label="Main">
+        <button type="button" class="active" data-tab="owner">Owner</button>
+        <button type="button" data-tab="billing">Billing</button>
+        <button type="button" data-tab="khata">Credit Account</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="panel-owner" class="panel active" aria-labelledby="owner-heading">
+        <h2 id="owner-heading" class="sr-only">Owner dashboard</h2>
+        <div id="dash-msg" class="msg" hidden></div>
+
+        <div class="card">
+          <h2>New item</h2>
+          <form id="add-item-form" class="form-grid cols-2">
+            <div style="grid-column: 1 / -1">
+              <label for="item-name">Item name</label>
+              <input id="item-name" type="text" placeholder="e.g. Sugar" required autocomplete="off" />
+            </div>
+            <div>
+              <label for="item-price">Price (per unit)</label>
+              <input id="item-price" type="number" min="0" step="0.01" placeholder="45" required />
+            </div>
+            <div>
+              <label for="item-unit">Unit</label>
+              <select id="item-unit">
+                <option value="kg">kg</option>
+                <option value="gram">gram</option>
+                <option value="piece">piece</option>
+                <option value="liter">liter</option>
+                <option value="packet">packet</option>
+              </select>
+            </div>
+            <div style="grid-column: 1 / -1">
+              <label for="item-stock">Opening stock</label>
+              <input id="item-stock" type="number" min="0" step="0.01" placeholder="20" required />
+            </div>
+            <div style="grid-column: 1 / -1">
+              <button type="submit" class="btn btn-primary" style="width: 100%">Save Item</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Stock &amp; price</h2>
+          <p style="margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--muted)">
+            Low stock: <strong style="color: var(--warn)">&lt; 5</strong> units
+          </p>
+          <div class="stock-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Stock</th>
+                  <th>Unit</th>
+                  <th>Price</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="stock-body"></tbody>
+            </table>
+          </div>
+          <p id="stock-empty" class="empty-hint" hidden>No items in stock.</p>
+        </div>
+
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="margin: 0;">Today Sales Summary</h2>
+            <input type="date" id="sales-date-picker" class="btn btn-secondary btn-sm" style="width: auto; padding: 0.25rem 0.5rem;" />
+          </div>
+          <p id="today-sales-summary" style="margin: 0; font-size: 0.95rem; color: var(--muted)">
+            Loading…
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>Bills</h2>
+          <div id="bills-list" class="bills-list"></div>
+          <p id="bills-empty" class="empty-hint">There is no bill on this date.</p>
+        </div>
+      </section>
+
+      <section id="panel-billing" class="panel" aria-labelledby="billing-heading">
+        <h2 id="billing-heading" class="sr-only">Billing</h2>
+        <div id="bill-msg" class="msg" hidden></div>
+
+        <div class="card">
+          <h2>Make a Bill</h2>
+          <div class="bill-row form-grid" style="margin-bottom: 0">
+            <div style="grid-column: 1 / -1">
+              <label for="bill-item-select">Item</label>
+              <select id="bill-item-select">
+                <option value="">— Select Item —</option>
+              </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label for="bill-qty">Quantity</label>
+                <input id="bill-qty" type="number" min="0.01" step="0.01" placeholder="2" />
+              </div>
+              <div>
+                <label for="bill-unit-select">Unit</label>
+                <select id="bill-unit-select">
+                  <option value="kg">kg</option>
+                  <option value="gram">gram</option>
+                  <option value="piece">piece</option>
+                  <option value="liter">liter</option>
+                  <option value="packet">packet</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <button type="button" id="add-line-btn" class="btn btn-primary" style="width: 100%; height: 100%; min-height: 42px">
+                Add line
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Bill lines</h2>
+          <p id="bill-empty" class="empty-hint">There is no line right now.</p>
+          <ul id="bill-lines" class="bill-lines"></ul>
+          
+          <div class="total-bar" style="margin-top: 1rem;">
+            <span>Total</span>
+            <span id="bill-total">₹0.00</span>
+          </div>
+
+          <div class="payment-selection card" style="background: var(--surface2); margin: 1rem 0; padding: 1rem; border: 1px solid var(--border);">
+            <h3 style="margin-top: 0; font-size: 1rem;">Payment Method</h3>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="radio" name="payment-mode" value="cash" checked> Cash
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="radio" name="payment-mode" value="online"> Online
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="radio" name="payment-mode" value="udhaar"> Credit Account
+              </label>
+            </div>
+
+            <div id="customer-select-wrap" hidden>
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.5rem;">
+                <label for="bill-customer-search" style="margin:0">Customer</label>
+                <button type="button" id="add-customer-btn" class="btn btn-secondary btn-sm" title="Naya Customer">+ New Customer</button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div class="searchable-select-wrapper">
+                  <input type="text" id="bill-customer-search" class="searchable-select-input" placeholder="Search customer...">
+                  <input type="hidden" id="bill-customer-id">
+                  <div id="bill-customer-dropdown" class="searchable-select-dropdown" hidden></div>
+                </div>
+                <select id="bill-customer-select">
+                  <option value="">— Select from list —</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap">
+            <button type="button" id="complete-sale-btn" class="btn btn-primary" style="flex: 1; min-width: 140px">
+              Sale complete (stock update)
+            </button>
+            <button type="button" id="clear-cart-btn" class="btn btn-secondary">Clear Cart</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-khata" class="panel" aria-labelledby="khata-heading">
+        <h2 id="khata-heading" class="sr-only">Account Viewer</h2>
+        <div id="khata-msg" class="msg" hidden></div>
+
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="margin: 0;">Credit Account Viewer</h2>
+            <button type="button" id="khata-add-customer-btn" class="btn btn-primary btn-sm">+ New Customer</button>
+          </div>
+          <div class="stock-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Customer Name</th>
+                  <th>Mobile</th>
+                  <th style="text-align: right;">Credit Balance</th>
+                  <th style="text-align: center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="khata-body"></tbody>
+            </table>
+          </div>
+          <p id="khata-empty" class="empty-hint" hidden>There is no Credit.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Customer Add Modal -->
+    <div id="customer-modal" class="modal" hidden>
+      <div class="modal-content">
+        <button type="button" id="customer-close-btn" class="btn-close">×</button>
+        <h2>New Customer</h2>
+        <form id="add-customer-form" class="form-grid">
+          <div>
+            <label for="new-customer-name">Name</label>
+            <input id="new-customer-name" type="text" placeholder="Grahak ka naam" required />
+          </div>
+          <div>
+            <label for="new-customer-mobile">Mobile (Optional)</label>
+            <input id="new-customer-mobile" type="tel" placeholder="10 digit number" />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%">Save New Customer</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Udhaar Payment Modal -->
+    <div id="udhaar-payment-modal" class="modal" hidden>
+      <div class="modal-content">
+        <button type="button" id="udhaar-payment-close-btn" class="btn-close">×</button>
+        <h2>Deposit Amount</h2>
+        <div id="udhaar-customer-info" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--surface2); border-radius: 6px;">
+          <strong id="udhaar-cust-name">...</strong><br>
+          <small>Total Pending: <span id="udhaar-cust-balance">₹0.00</span></small>
+        </div>
+        <form id="udhaar-payment-form" class="form-grid">
+          <input type="hidden" id="udhaar-cust-id">
+          <div>
+            <label for="udhaar-pay-amount">Deposit amount?</label>
+            <input id="udhaar-pay-amount" type="number" min="1" step="0.01" placeholder="Amount" required />
+          </div>
+          <div>
+            <label for="udhaar-pay-method">Payment Method?</label>
+            <select id="udhaar-pay-method">
+              <option value="Cash">Cash</option>
+              <option value="PhonePe">PhonePe</option>
+              <option value="GPay">GPay</option>
+              <option value="Paytm">Paytm</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="udhaar-pay-note">Note (Optional)</label>
+            <input id="udhaar-pay-note" type="text" placeholder="Add a note to this deposit..." />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%">Deposit Amount</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Udhaar History Modal -->
+    <div id="udhaar-history-modal" class="modal" hidden>
+      <div class="modal-content" style="max-width: 600px;">
+        <button type="button" id="udhaar-history-close-btn" class="btn-close">×</button>
+        <h2>Transaction History</h2>
+        <div id="history-customer-info" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--surface2); border-radius: 6px;">
+          <strong id="history-cust-name">...</strong>
+        </div>
+        <div class="stock-table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Type</th>
+                <th style="text-align: right;">Amount</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipt Print Modal -->
+    <div id="receipt-modal" class="modal" hidden>
+      <div class="modal-content receipt-print">
+        <button type="button" id="receipt-close-btn" class="btn-close">×</button>
+        <div id="receipt-content"></div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem; flex-wrap: wrap">
+          <button type="button" id="receipt-print-btn" class="btn btn-primary" style="flex: 1; min-width: 140px">
+            🖨️ Print
+          </button>
+          <button type="button" id="receipt-close-modal-btn" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal" hidden>
+      <div class="modal-content">
+        <div id="auth-step-signup" class="auth-step">
+          <h2>Register</h2>
+          <form id="signup-form" class="form-grid">
+            <div>
+              <label for="signup-name">Name</label>
+              <input id="signup-name" type="text" placeholder="Your name" required />
+            </div>
+            <div>
+              <label for="signup-mobile">Mobile Number</label>
+              <input id="signup-mobile" type="tel" placeholder="1234567890" required />
+            </div>
+            <div>
+              <label for="signup-password">Password</label>
+              <div class="password-input-wrapper">
+                <input id="signup-password" type="password" placeholder="Min 6 characters" required minlength="6" />
+                <button type="button" class="password-toggle">👁️</button>
+              </div>
+            </div>
+            <div>
+              <label for="signup-confirm-password">Confirm Password</label>
+              <input id="signup-confirm-password" type="password" placeholder="Confirm password" required />
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%">Register</button>
+          </form>
+          <p style="text-align: center; margin-top: 1rem">
+            <button type="button" id="switch-to-login" class="btn-link">Already registered? Login</button>
+          </p>
+        </div>
+        <div id="auth-step-login" class="auth-step" hidden>
+          <h2>Login</h2>
+          <form id="login-form" class="form-grid">
+            <div>
+              <label for="login-identity">Name or Mobile</label>
+              <input id="login-identity" type="text" placeholder="Name or mobile" required />
+            </div>
+            <div>
+              <label for="login-password">Password</label>
+              <div class="password-input-wrapper">
+                <input id="login-password" type="password" required />
+                <button type="button" class="password-toggle">👁️</button>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%">Login</button>
+          </form>
+          <p id="forgot-pass-trigger" style="text-align: right; margin-top: 0.5rem; font-size: 0.8rem; color: var(--accent); cursor: pointer;">Forgot Password?</p>
+          <p style="text-align: center; margin-top: 1rem">
+            <button type="button" id="switch-to-signup" class="btn-link">New user? Register</button>
+          </p>
+        </div>
+        <div id="auth-msg" class="msg" hidden></div>
+      </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="modal" hidden>
+      <div class="modal-content">
+        <button type="button" id="change-pass-close-btn" class="btn-close">×</button>
+        <h2>Change Password</h2>
+        <form id="change-pass-form" class="form-grid">
+          <div>
+            <label for="cp-current">Current Password</label>
+            <div class="password-input-wrapper">
+              <input id="cp-current" type="password" required />
+              <button type="button" class="password-toggle">👁️</button>
+            </div>
+          </div>
+          <div>
+            <label for="cp-new">New Password (Min 6 chars)</label>
+            <div class="password-input-wrapper">
+              <input id="cp-new" type="password" required minlength="6" />
+              <button type="button" class="password-toggle">👁️</button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%">Update Password</button>
+        </form>
+        <div id="cp-msg" class="msg" hidden></div>
+      </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgot-password-modal" class="modal" hidden>
+      <div class="modal-content">
+        <button type="button" id="forgot-pass-close-btn" class="btn-close">×</button>
+        <h2>Reset Password</h2>
+        <p style="font-size: 0.85rem; margin-bottom: 1rem; color: var(--muted);">Enter your registered mobile number and name to reset your password.</p>
+        <form id="forgot-pass-form" class="form-grid">
+          <div>
+            <label for="fp-mobile">Registered Mobile</label>
+            <input id="fp-mobile" type="tel" placeholder="10 digit number" required />
+          </div>
+          <div>
+            <label for="fp-name">Registered Name</label>
+            <input id="fp-name" type="text" placeholder="Aapka naam" required />
+          </div>
+          <div>
+            <label for="fp-new">New Password (Min 6 chars)</label>
+            <div class="password-input-wrapper">
+              <input id="fp-new" type="password" required minlength="6" />
+              <button type="button" class="password-toggle">👁️</button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%">Reset Password</button>
+        </form>
+        <div id="fp-msg" class="msg" hidden></div>
+      </div>
+    </div>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>

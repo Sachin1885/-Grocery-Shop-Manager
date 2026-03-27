@@ -1,0 +1,52 @@
+================================================================================
+ALAG WI-FI / MOBILE DATA PAR CHALANA — 2 TAREEKE (recommended order)
+================================================================================
+
+OPTION A — TAILSCALE (SABSE BEST: PRIVATE, SAFE, ROZ-MARRA)
+--------------------------------------------------------------------------------
+- Phone aur PC dono par same account se Tailscale install karo.
+- Dono devices "ON" hon — chahe Wi-Fi alag ho, app Tailscale IP se chalega.
+
+PC (Windows):
+  1) https://tailscale.com/download  se install karo
+     ya: winget install Tailscale.Tailscale
+  2) Sign in karo (Google/Microsoft/GitHub).
+  3) System tray me Tailscale → Connected.
+
+Phone:
+  1) Play Store / App Store se "Tailscale" install → same account se login.
+
+URL kaise banega:
+  1) PC par Tailscale app / admin console se apne PC ka "Tailscale IP" dekho
+     (100.x.y.z jaisa).
+  2) Phone ke browser me kholo:  http://100.x.y.z:4000/
+     (4000 tumhara server port hai — .env me PORT change ho to wahi likho.)
+
+Note: Windows Firewall pe kabhi-kabhi phir bhi rule chahiye — open-firewall-4000.bat
+(Run as administrator) ek baar chala sakte ho.
+
+
+OPTION B — CLOUDFLARE QUICK TUNNEL (TEZ SETUP, LEKIN LINK PUBLIC)
+--------------------------------------------------------------------------------
+⚠ URL jo mile wo internet par khula hota hai — link kisi ko mat bhejo; sirf test.
+
+Pehle server chalao (alag terminal):  npm.cmd start
+
+Phir dusri terminal me:
+  cloudflared tunnel --url http://localhost:4000
+
+Jo "https://....trycloudflare.com" dikhe, wahi phone me khol lo (kisi bhi network se).
+
+cloudflared install:
+  winget install Cloudflare.cloudflared
+  ya: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
+
+Ya double-click: run-cloudflared-tunnel.bat (server pehle se chalna chahiye)
+
+
+================================================================================
+FILES (is folder me)
+================================================================================
+  open-firewall-4000.bat      — LAN / Tailscale ke liye port 4000 allow
+  run-cloudflared-tunnel.bat  — public quick tunnel (Option B)
+  install-remote-tools.bat    — winget se Tailscale + cloudflared install try

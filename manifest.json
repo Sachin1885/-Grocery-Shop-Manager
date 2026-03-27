@@ -1,0 +1,18 @@
+{
+  "name": "Grocery Shop Manager",
+  "short_name": "Grocery",
+  "description": "Stock, pricing, and billing for your grocery shop",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

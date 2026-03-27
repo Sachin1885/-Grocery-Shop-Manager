@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - SmartShop</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        .user-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+        }
+        .user-info {
+            flex: 1;
+        }
+        .user-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .status-active { background: #d4edda; color: #155724; }
+        .status-inactive { background: #f8d7da; color: #721c24; }
+        .btn-toggle {
+            margin-left: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h1>🛡️ Admin Panel</h1>
+                <p>Manage Shop Owners & System</p>
+            </div>
+            <div class="header-profile" id="header-profile">
+                <div style="text-align: right;">
+                    <div id="header-username" style="font-weight: 600; font-size: 0.9rem;">Guest</div>
+                    <div id="header-user-role" style="font-size: 0.7rem; color: var(--muted);">Administrator</div>
+                </div>
+                <img id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Admin" style="width: 35px; height: 35px; border-radius: 50%; background: var(--surface2);" alt="Avatar">
+                
+                <div class="profile-dropdown" id="profile-dropdown">
+                    <a href="/dashboard.html" class="dropdown-item">
+                        <span>🏠 Dashboard</span>
+                    </a>
+                    <button type="button" id="admin-change-pass-btn" class="dropdown-item">
+                        <span>🔑 Change Password</span>
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button id="admin-logout-btn" class="dropdown-item danger">
+                        <span>🚪 Logout</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <nav class="nav-tabs" style="height: 10px; opacity: 0; pointer-events: none;">
+            <!-- Placeholder to keep layout consistency -->
+        </nav>
+    </header>
+
+    <main id="admin-main" hidden>
+        <section class="panel active">
+            <div id="admin-msg" class="msg" hidden></div>
+
+            <div class="card">
+                <h2>Shop Owners</h2>
+                <div id="users-list">
+                    <p class="empty-hint">Loading users...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Admin Login Modal -->
+    <div id="admin-login-modal" class="modal" hidden>
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <form id="admin-login-form" class="form-grid">
+                <div>
+                    <label for="admin-identity">Username</label>
+                    <input id="admin-identity" type="text" placeholder="Enter Admin Name" required />
+                </div>
+                <div>
+                    <label for="admin-password">Password</label>
+                    <div class="password-input-wrapper">
+                        <input id="admin-password" type="password" required />
+                        <button type="button" class="password-toggle">👁️</button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%">Login as Admin</button>
+            </form>
+            <div id="admin-login-msg" class="msg" hidden></div>
+            <p style="text-align: center; margin-top: 1rem">
+                <a href="/dashboard.html" class="btn-link">Back to Dashboard</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Admin Password Change Modal -->
+    <div id="admin-password-modal" class="modal" hidden>
+        <div class="modal-content">
+            <button type="button" id="admin-password-close-btn" class="btn-close">×</button>
+            <h2>Update Password</h2>
+            <p id="admin-password-user-info" style="margin-bottom: 1rem; color: var(--muted);"></p>
+            <form id="admin-password-form" class="form-grid">
+                <input type="hidden" id="admin-password-user-id">
+                <div>
+                    <label for="admin-new-password">New Password</label>
+                    <div class="password-input-wrapper">
+                        <input id="admin-new-password" type="password" placeholder="Min 6 characters" required minlength="6" />
+                        <button type="button" class="password-toggle">👁️</button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%">Update Password</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal (Admin Personal) -->
+    <div id="change-password-modal" class="modal" hidden>
+        <div class="modal-content">
+            <button type="button" id="change-pass-close-btn" class="btn-close">×</button>
+            <h2>Change My Password</h2>
+            <form id="change-pass-form" class="form-grid">
+                <div>
+                    <label for="cp-current">Current Password</label>
+                    <div class="password-input-wrapper">
+                        <input id="cp-current" type="password" required />
+                        <button type="button" class="password-toggle">👁️</button>
+                    </div>
+                </div>
+                <div>
+                    <label for="cp-new">New Password (Min 6 chars)</label>
+                    <div class="password-input-wrapper">
+                        <input id="cp-new" type="password" required minlength="6" />
+                        <button type="button" class="password-toggle">👁️</button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%">Update Password</button>
+            </form>
+            <div id="cp-msg" class="msg" hidden></div>
+        </div>
+    </div>
+
+    <script src="js/admin.js"></script>
+</body>
+</html>

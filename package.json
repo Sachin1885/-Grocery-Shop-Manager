@@ -1,0 +1,9 @@
+{
+  "name": "tcs-grocery-shop",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "cd backend && npm start",
+    "start:clean": "cd backend && npm run start:clean"
+  }
+}

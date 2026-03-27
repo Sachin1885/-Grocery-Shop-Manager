@@ -1,0 +1,68 @@
+CREATE DATABASE IF NOT EXISTS grocery_shop;
+USE grocery_shop;
+
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  mobile VARCHAR(15) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  otp VARCHAR(6),
+  otp_expires_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  unit VARCHAR(30) NOT NULL,
+  price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  stock DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  total_amount DECIMAL(12, 2) NOT NULL,
+  sold_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sale_lines (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  sale_id BIGINT NOT NULL,
+  item_id INT NOT NULL,
+  item_name VARCHAR(120) NOT NULL,
+  unit VARCHAR(30) NOT NULL,
+  qty DECIMAL(10, 2) NOT NULL,
+  unit_price DECIMAL(10, 2) NOT NULL,
+  line_total DECIMAL(12, 2) NOT NULL,
+  CONSTRAINT fk_sale_lines_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sales (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  total_amount DECIMAL(12, 2) NOT NULL,
+  sold_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sale_lines (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  sale_id BIGINT NOT NULL,
+  item_id INT NOT NULL,
+  item_name VARCHAR(120) NOT NULL,
+  unit VARCHAR(30) NOT NULL,
+  qty DECIMAL(10, 2) NOT NULL,
+  unit_price DECIMAL(10, 2) NOT NULL,
+  line_total DECIMAL(12, 2) NOT NULL,
+  CONSTRAINT fk_sale_lines_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+);
+
+INSERT INTO items (name, unit, price, stock)
+SELECT "Chawal", "kg", 60, 25
+WHERE NOT EXISTS (SELECT 1 FROM items WHERE name = "Chawal");
+
+INSERT INTO items (name, unit, price, stock)
+SELECT "Sugar", "kg", 45, 10
+WHERE NOT EXISTS (SELECT 1 FROM items WHERE name = "Sugar");
+
+INSERT INTO items (name, unit, price, stock)
+SELECT "Soap", "piece", 20, 30
+WHERE NOT EXISTS (SELECT 1 FROM items WHERE name = "Soap");
