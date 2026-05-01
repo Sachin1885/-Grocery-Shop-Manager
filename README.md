@@ -74,6 +74,29 @@ This project already includes `render.yaml` for one-click style setup on Render:
 - Database: managed PostgreSQL (`grocery-db`)
 - Required env vars: `JWT_SECRET`, `DATABASE_URL`
 
+## Screenshots
+
+Add screenshots to `assets/screenshots/` using the file names below:
+
+- `assets/screenshots/login.png`
+- `assets/screenshots/dashboard.png`
+- `assets/screenshots/billing.png`
+- `assets/screenshots/admin.png`
+
+Then they will appear in this section on GitHub:
+
+### Login
+![Login Screen](assets/screenshots/login.png)
+
+### Dashboard
+![Dashboard](assets/screenshots/dashboard.png)
+
+### Billing
+![Billing](assets/screenshots/billing.png)
+
+### Admin Panel
+![Admin Panel](assets/screenshots/admin.png)
+
 ## Notes
 
 - On first run, database tables are auto-created by `backend/db.js`.
